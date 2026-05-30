@@ -146,14 +146,13 @@ def check_for_changes(
     session hashes, and unix timestamps are stripped first. If no ``<body>``
     tag is found, the full response is used instead.
 
-    - If the snapshot does not exist, write the normalized body, notify Discord,
-      and return ``False``.
+    - If the snapshot does not exist, write the normalized body and return ``False``.
     - If the snapshot exists and body content differs, print a compact diff,
       overwrite the snapshot, notify Discord, and return ``True``.
-    - If body content is unchanged, notify Discord and return ``False``.
+    - If body content is unchanged, return ``False``.
 
-    Discord is notified on every run when ``DISCORD_BOT_TOKEN`` and
-    ``DISCORD_CHANNEL_ID`` are set in the environment or ``.env`` file.
+    Discord is notified only on **changes**. Posts go to ``DISCORD_CHANNEL_ID``;
+    if ``DISCORD_NOTIFY_USER_ID`` is set, that user is @mentioned in the message.
     """
     from pagemonitor.env import load_dotenv
 
@@ -165,25 +164,10 @@ def check_for_changes(
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
-        if notify:
-            _maybe_notify_discord(
-                url,
-                changed=False,
-                diff="",
-                snapshot_path=str(path),
-                baseline=True,
-            )
         return False
 
     old = prepare_content(path.read_bytes())
     if old == content:
-        if notify:
-            _maybe_notify_discord(
-                url,
-                changed=False,
-                diff="",
-                snapshot_path=str(path),
-            )
         return False
 
     diff_text = format_diff(old, content, fromfile=str(path), tofile=url)
@@ -212,19 +196,18 @@ def _maybe_notify_discord(
     page_content: bytes | None = None,
 ) -> None:
     from pagemonitor.discord import DiscordError, DiscordNotConfigured, notify_page_change
-    from pagemonitor.steamframe import is_steamframe_url, should_mention_everyone
+    from pagemonitor.discord import notify_role_id, notify_user_id
+    from pagemonitor.steamframe import should_alert_purchase, should_mention_role
 
-    mention_everyone = False
-    if changed:
-        if is_steamframe_url(url):
-            mention_everyone = True
-        elif page_content is not None:
-            mention_everyone = should_mention_everyone(
-                url,
-                page_content,
-                changed=True,
-                diff=diff,
-            )
+    role_id = notify_role_id() if should_mention_role(url, changed=changed) else None
+    purchase_alert = False
+    if changed and page_content is not None:
+        purchase_alert = should_alert_purchase(
+            url,
+            page_content,
+            changed=True,
+            diff=diff,
+        )
 
     try:
         notify_page_change(
@@ -233,9 +216,15 @@ def _maybe_notify_discord(
             diff=diff,
             snapshot_path=snapshot_path,
             baseline=baseline,
-            mention_everyone=mention_everyone,
+            mention_role_id=role_id,
+            mention_user_id=notify_user_id(),
+            purchase_alert=purchase_alert,
         )
+        print("discord: message sent")
     except DiscordNotConfigured:
-        return
+        print(
+            "discord: not configured (set DISCORD_BOT_TOKEN and DISCORD_CHANNEL_ID in .env)",
+            file=sys.stderr,
+        )
     except DiscordError as exc:
         print(f"discord notification failed: {exc}", file=sys.stderr)

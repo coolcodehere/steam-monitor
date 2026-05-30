@@ -69,7 +69,7 @@ class CheckForChangesTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertIn(b"version 2", self.snapshot.read_bytes())
         self.assertNotIn(b"version 1", self.snapshot.read_bytes())
-        self.assertEqual(mock_notify.call_count, 2)
+        mock_notify.assert_called_once()
         self.assertTrue(mock_notify.call_args.kwargs["changed"])
         self.assertIn("2</p>", mock_notify.call_args.kwargs["diff"])
 
@@ -94,21 +94,20 @@ class CheckForChangesTests(unittest.TestCase):
             check_for_changes(self.url, self.snapshot)
             check_for_changes(self.url, self.snapshot)
 
-        self.assertEqual(mock_urlopen.call_count, 2)
+        self.assertEqual(mock_urlopen.call_count, 1)
         request = mock_urlopen.call_args[0][0]
         self.assertIn("/channels/99/messages", request.full_url)
 
     @patch("pagemonitor.discord.notify_page_change")
     @patch("pagemonitor.monitor.fetch_page")
-    def test_notifies_discord_when_unchanged(self, mock_fetch, mock_notify) -> None:
+    def test_does_not_notify_discord_when_unchanged(self, mock_fetch, mock_notify) -> None:
         page = _html("<p>hello</p>")
         mock_fetch.return_value = page
 
         check_for_changes(self.url, self.snapshot)
         check_for_changes(self.url, self.snapshot)
 
-        self.assertEqual(mock_notify.call_count, 2)
-        self.assertFalse(mock_notify.call_args.kwargs["changed"])
+        mock_notify.assert_not_called()
 
     @patch("pagemonitor.monitor.fetch_page")
     def test_session_noise_does_not_trigger_change(self, mock_fetch) -> None:

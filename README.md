@@ -23,15 +23,15 @@ Behavior:
 
 After each check, PageMonitor posts the result to a Discord channel using the [bot API](https://discord.com/developers/docs/resources/channel#create-message)—changed, unchanged, or first-time baseline. The outgoing request is printed to the console (token redacted).
 
-For [Steam Frame](https://store.steampowered.com/hardware/steamframe), any detected **change** pings `@everyone` (Discord requires `allowed_mentions` in the API payload for the ping to fire). The bot needs **Mention @everyone** permission in that channel.
+For [Steam Frame](https://store.steampowered.com/hardware/steamframe), any detected **change** pings the **@Steam Frame Interest** role (Discord requires `allowed_mentions` in the API payload for the ping to fire). Set `DISCORD_NOTIFY_ROLE_ID` to that role's ID; the bot needs permission to mention the role in that channel.
 
 Test the ping:
 
 ```bash
-python3 scripts/ping_everyone.py
+python3 scripts/ping_role.py
 ```
 
-Simulate a Steam Frame change (reserve/buy detected, `@everyone`, no fetch):
+Simulate a Steam Frame change (reserve/buy detected, role ping, no fetch):
 
 ```bash
 python3 scripts/simulate_change.py
@@ -48,6 +48,8 @@ cp .env.example .env
 |----------|-------------|
 | `DISCORD_BOT_TOKEN` | Bot token from the [Discord Developer Portal](https://discord.com/developers/applications) |
 | `DISCORD_CHANNEL_ID` | Channel ID to post in (bot needs **Send Messages** in that channel) |
+| `DISCORD_NOTIFY_USER_ID` | Your Discord **user** ID — @mentioned in that channel when the page changes |
+| `DISCORD_NOTIFY_ROLE_ID` | **@Steam Frame Interest** role ID — @mentioned on Steam Frame page changes |
 
 ```bash
 python3 scripts/check_page.py https://example.com snapshots/example.html
@@ -67,6 +69,27 @@ Or after install:
 pip install -e .
 check-page https://example.com snapshots/example.html
 ```
+
+### Docker (Steam Frame every 30 seconds)
+
+All Docker files live in [`docker/`](docker/). See [`docker/README.md`](docker/README.md).
+
+Equivalent to running this on a loop:
+
+```bash
+python3 scripts/check_page.py https://store.steampowered.com/hardware/steamframe snapshots/steamframe.html
+```
+
+```bash
+cp .env.example .env   # Discord token + channel id
+./docker/docker-up.sh
+```
+
+- Loads secrets from `.env` in the project root
+- Persists `snapshots/steamframe.html` on the host
+- Checks every **30 seconds** (`PAGEMONITOR_INTERVAL` to override)
+
+Stop: `docker compose -f docker/docker-compose.yml down`
 
 ### Tests
 

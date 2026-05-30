@@ -33,7 +33,7 @@ def main() -> int:
         print("changed")
         return 0
 
-    print("unchanged")
+    print("unchanged (no discord — page matches snapshot)")
     return 0
 
 

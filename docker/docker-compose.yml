@@ -1,0 +1,16 @@
+services:
+  pagemonitor:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      PAGEMONITOR_URL: https://store.steampowered.com/hardware/steamframe
+      PAGEMONITOR_SNAPSHOT: /app/snapshots/steamframe.html
+      PAGEMONITOR_INTERVAL: "60"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ../snapshots:/app/snapshots
+      - ../.env:/app/.env:ro
+    restart: unless-stopped
