@@ -82,6 +82,35 @@ def _join_tokens(tokens: list[str], *, max_chars: int = _MAX_HUNK_CHARS) -> str:
     return f"{text[:max_chars]}… ({len(text)} chars)"
 
 
+def format_diff(
+    old: bytes,
+    new: bytes,
+    *,
+    fromfile: str = "snapshot",
+    tofile: str = "fetched",
+    max_hunk_chars: int = _MAX_HUNK_CHARS,
+) -> str:
+    """Return a compact diff of only the parts of the body that changed."""
+    old_tokens = _tokenize(old.decode("utf-8", errors="replace"))
+    new_tokens = _tokenize(new.decode("utf-8", errors="replace"))
+    matcher = difflib.SequenceMatcher(None, old_tokens, new_tokens)
+
+    lines: list[str] = []
+    wrote_header = False
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        if not wrote_header:
+            lines.append(f"--- {fromfile}")
+            lines.append(f"+++ {tofile}")
+            wrote_header = True
+        if tag in ("delete", "replace"):
+            lines.append(f"- {_join_tokens(old_tokens[i1:i2], max_chars=max_hunk_chars)}")
+        if tag in ("insert", "replace"):
+            lines.append(f"+ {_join_tokens(new_tokens[j1:j2], max_chars=max_hunk_chars)}")
+    return "\n".join(lines)
+
+
 def print_diff(
     old: bytes,
     new: bytes,
@@ -93,25 +122,23 @@ def print_diff(
 ) -> None:
     """Print only the parts of the body that changed (not unchanged context)."""
     out = sys.stdout if file is None else file
-    old_tokens = _tokenize(old.decode("utf-8", errors="replace"))
-    new_tokens = _tokenize(new.decode("utf-8", errors="replace"))
-    matcher = difflib.SequenceMatcher(None, old_tokens, new_tokens)
-
-    wrote_header = False
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag == "equal":
-            continue
-        if not wrote_header:
-            out.write(f"--- {fromfile}\n")
-            out.write(f"+++ {tofile}\n")
-            wrote_header = True
-        if tag in ("delete", "replace"):
-            out.write(f"- {_join_tokens(old_tokens[i1:i2], max_chars=max_hunk_chars)}\n")
-        if tag in ("insert", "replace"):
-            out.write(f"+ {_join_tokens(new_tokens[j1:j2], max_chars=max_hunk_chars)}\n")
+    text = format_diff(
+        old,
+        new,
+        fromfile=fromfile,
+        tofile=tofile,
+        max_hunk_chars=max_hunk_chars,
+    )
+    if text:
+        out.write(text if text.endswith("\n") else f"{text}\n")
 
 
-def check_for_changes(url: str, snapshot_path: str | Path) -> bool:
+def check_for_changes(
+    url: str,
+    snapshot_path: str | Path,
+    *,
+    notify: bool = True,
+) -> bool:
     """Fetch *url* and compare body content to the file at *snapshot_path*.
 
     Only the inner HTML inside ``<body>`` is compared and stored. Dynamic
@@ -119,23 +146,96 @@ def check_for_changes(url: str, snapshot_path: str | Path) -> bool:
     session hashes, and unix timestamps are stripped first. If no ``<body>``
     tag is found, the full response is used instead.
 
-    - If the snapshot does not exist, write the normalized body and return ``False``.
-    - If the snapshot exists and body content differs, print a compact diff
-      of only the changed fragments, overwrite the snapshot, and return ``True``.
-    - If body content is unchanged, return ``False``.
+    - If the snapshot does not exist, write the normalized body, notify Discord,
+      and return ``False``.
+    - If the snapshot exists and body content differs, print a compact diff,
+      overwrite the snapshot, notify Discord, and return ``True``.
+    - If body content is unchanged, notify Discord and return ``False``.
+
+    Discord is notified on every run when ``DISCORD_BOT_TOKEN`` and
+    ``DISCORD_CHANNEL_ID`` are set in the environment or ``.env`` file.
     """
+    from pagemonitor.env import load_dotenv
+
+    load_dotenv()
+
     path = Path(snapshot_path)
     content = prepare_content(fetch_page(url))
 
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
+        if notify:
+            _maybe_notify_discord(
+                url,
+                changed=False,
+                diff="",
+                snapshot_path=str(path),
+                baseline=True,
+            )
         return False
 
     old = prepare_content(path.read_bytes())
     if old == content:
+        if notify:
+            _maybe_notify_discord(
+                url,
+                changed=False,
+                diff="",
+                snapshot_path=str(path),
+            )
         return False
 
+    diff_text = format_diff(old, content, fromfile=str(path), tofile=url)
     print_diff(old, content, fromfile=str(path), tofile=url)
     path.write_bytes(content)
+
+    if notify:
+        _maybe_notify_discord(
+            url,
+            changed=True,
+            diff=diff_text,
+            snapshot_path=str(path),
+            page_content=content,
+        )
+
     return True
+
+
+def _maybe_notify_discord(
+    url: str,
+    *,
+    changed: bool,
+    diff: str,
+    snapshot_path: str,
+    baseline: bool = False,
+    page_content: bytes | None = None,
+) -> None:
+    from pagemonitor.discord import DiscordError, DiscordNotConfigured, notify_page_change
+    from pagemonitor.steamframe import is_steamframe_url, should_mention_everyone
+
+    mention_everyone = False
+    if changed:
+        if is_steamframe_url(url):
+            mention_everyone = True
+        elif page_content is not None:
+            mention_everyone = should_mention_everyone(
+                url,
+                page_content,
+                changed=True,
+                diff=diff,
+            )
+
+    try:
+        notify_page_change(
+            url,
+            changed=changed,
+            diff=diff,
+            snapshot_path=snapshot_path,
+            baseline=baseline,
+            mention_everyone=mention_everyone,
+        )
+    except DiscordNotConfigured:
+        return
+    except DiscordError as exc:
+        print(f"discord notification failed: {exc}", file=sys.stderr)

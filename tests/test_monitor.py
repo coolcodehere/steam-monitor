@@ -48,9 +48,15 @@ class CheckForChangesTests(unittest.TestCase):
         self.assertFalse(changed)
         self.assertEqual(mock_fetch.call_count, 2)
 
+    @patch("pagemonitor.discord.notify_page_change")
     @patch("pagemonitor.monitor.print_diff")
     @patch("pagemonitor.monitor.fetch_page")
-    def test_injected_body_change_returns_true(self, mock_fetch, _mock_diff) -> None:
+    def test_injected_body_change_returns_true(
+        self,
+        mock_fetch,
+        _mock_diff,
+        mock_notify,
+    ) -> None:
         mock_fetch.side_effect = [
             _html("<p>version 1</p>"),
             _html("<p>version 2</p>"),
@@ -63,6 +69,46 @@ class CheckForChangesTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertIn(b"version 2", self.snapshot.read_bytes())
         self.assertNotIn(b"version 1", self.snapshot.read_bytes())
+        self.assertEqual(mock_notify.call_count, 2)
+        self.assertTrue(mock_notify.call_args.kwargs["changed"])
+        self.assertIn("2</p>", mock_notify.call_args.kwargs["diff"])
+
+    @patch("urllib.request.urlopen")
+    @patch("pagemonitor.monitor.fetch_page")
+    def test_discord_api_called_on_change(
+        self,
+        mock_fetch,
+        mock_urlopen,
+    ) -> None:
+        import os
+
+        mock_urlopen.return_value.__enter__.return_value.status = 200
+        mock_fetch.side_effect = [
+            _html("<p>v1</p>"),
+            _html("<p>v2</p>"),
+        ]
+        with patch.dict(
+            os.environ,
+            {"DISCORD_BOT_TOKEN": "token", "DISCORD_CHANNEL_ID": "99"},
+        ):
+            check_for_changes(self.url, self.snapshot)
+            check_for_changes(self.url, self.snapshot)
+
+        self.assertEqual(mock_urlopen.call_count, 2)
+        request = mock_urlopen.call_args[0][0]
+        self.assertIn("/channels/99/messages", request.full_url)
+
+    @patch("pagemonitor.discord.notify_page_change")
+    @patch("pagemonitor.monitor.fetch_page")
+    def test_notifies_discord_when_unchanged(self, mock_fetch, mock_notify) -> None:
+        page = _html("<p>hello</p>")
+        mock_fetch.return_value = page
+
+        check_for_changes(self.url, self.snapshot)
+        check_for_changes(self.url, self.snapshot)
+
+        self.assertEqual(mock_notify.call_count, 2)
+        self.assertFalse(mock_notify.call_args.kwargs["changed"])
 
     @patch("pagemonitor.monitor.fetch_page")
     def test_session_noise_does_not_trigger_change(self, mock_fetch) -> None:
