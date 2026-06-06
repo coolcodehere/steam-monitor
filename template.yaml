@@ -1,0 +1,85 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: PageMonitor — scheduled Steam Frame checks with S3 snapshot storage
+
+Parameters:
+  DiscordBotToken:
+    Type: String
+    NoEcho: true
+    Description: Discord bot token
+  DiscordChannelId:
+    Type: String
+    Description: Discord channel ID for notifications
+  DiscordNotifyRoleId:
+    Type: String
+    Default: ""
+    Description: Optional role ID for @Steam Frame Interest
+  MonitorUrl:
+    Type: String
+    Default: https://store.steampowered.com/hardware/steamframe
+    Description: Page URL to monitor
+  ScheduleExpression:
+    Type: String
+    Default: rate(1 minute)
+    Description: EventBridge schedule for checks
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 256
+    Runtime: python3.12
+    Architectures:
+      - arm64
+
+Resources:
+  SnapshotBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  PageMonitorFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+    Properties:
+      FunctionName: pagemonitor
+      Description: Fetch Steam Frame page and notify Discord on changes
+      Handler: lambda.handler.lambda_handler
+      CodeUri: .
+      Environment:
+        Variables:
+          SNAPSHOT_BUCKET: !Ref SnapshotBucket
+          SNAPSHOT_KEY: snapshots/steamframe.html
+          PAGEMONITOR_URL: !Ref MonitorUrl
+          DISCORD_BOT_TOKEN: !Ref DiscordBotToken
+          DISCORD_CHANNEL_ID: !Ref DiscordChannelId
+          DISCORD_NOTIFY_ROLE_ID: !Ref DiscordNotifyRoleId
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref SnapshotBucket
+      Events:
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: !Ref ScheduleExpression
+            Description: Periodic page check
+            Enabled: true
+
+Outputs:
+  FunctionName:
+    Description: Lambda function name
+    Value: !Ref PageMonitorFunction
+  FunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt PageMonitorFunction.Arn
+  SnapshotBucketName:
+    Description: S3 bucket storing the page snapshot
+    Value: !Ref SnapshotBucket

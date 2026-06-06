@@ -1,2 +1,4 @@
 **.html
 .env
+.aws-sam/
+AGENTS.md

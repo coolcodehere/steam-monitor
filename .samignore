@@ -1,0 +1,11 @@
+.git
+.gitignore
+.aws-sam
+.env
+.env.example
+docker
+snapshots
+tests
+scripts
+README.md
+*.html

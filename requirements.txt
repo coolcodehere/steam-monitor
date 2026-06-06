@@ -1,0 +1,1 @@
+# Pagemonitor uses the Python stdlib only; boto3 is provided by the Lambda runtime.
