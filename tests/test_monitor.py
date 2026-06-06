@@ -127,6 +127,26 @@ class CheckForChangesTests(unittest.TestCase):
 
         self.assertFalse(changed)
 
+    @patch("pagemonitor.monitor.fetch_page")
+    def test_script_src_changes_do_not_trigger_change(self, mock_fetch) -> None:
+        mock_fetch.side_effect = [
+            _html(
+                '<p>product</p>'
+                '<script type="text/javascript" src="https://cdn.example/manifest.js?v=abc123"></script>'
+                '<script type="text/javascript" src="https://cdn.example/main.js?v=1.0.0"></script>'
+            ),
+            _html(
+                '<p>product</p>'
+                '<script type="text/javascript" src="https://cdn.example/manifest.js?v=def456"></script>'
+                '<script type="text/javascript" src="https://cdn.example/main.js?v=1.0.1"></script>'
+            ),
+        ]
+
+        check_for_changes(self.url, self.snapshot)
+        changed = check_for_changes(self.url, self.snapshot)
+
+        self.assertFalse(changed)
+
 
 if __name__ == "__main__":
     unittest.main()
