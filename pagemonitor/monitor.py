@@ -18,6 +18,10 @@ _APPLICATION_CONFIG_DIV_RE = re.compile(
     r'<div\b[^>]*\bid=["\']application_config["\'][^>]*>.*?</div\s*>',
     re.IGNORECASE | re.DOTALL,
 )
+_SCRIPT_TAG_RE = re.compile(
+    r"<script\b[^>]*>.*?</script\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
 _DATA_CONFIG_ATTR_RE = re.compile(
     r'\sdata-config=(?:\"[^\"]*\"|\'[^\']*\')',
     re.IGNORECASE,
@@ -55,6 +59,7 @@ def normalize_body(content: bytes) -> bytes:
     """Remove volatile markup so incidental/session noise does not count as a change."""
     text = content.decode("utf-8", errors="replace")
     text = _APPLICATION_CONFIG_DIV_RE.sub("", text)
+    text = _SCRIPT_TAG_RE.sub("", text)
     text = _DATA_CONFIG_ATTR_RE.sub("", text)
     text = _LARGE_DATA_ATTR_RE.sub("", text)
     text = _HEX_HASH_RE.sub('"<hash>"', text)
@@ -142,7 +147,7 @@ def check_for_changes(
     """Fetch *url* and compare body content to the file at *snapshot_path*.
 
     Only the inner HTML inside ``<body>`` is compared and stored. Dynamic
-    blocks (e.g. Steam ``application_config``), large ``data-*`` attributes,
+    blocks (e.g. Steam ``application_config``), ``<script>`` tags, large ``data-*`` attributes,
     session hashes, and unix timestamps are stripped first. If no ``<body>``
     tag is found, the full response is used instead.
 
