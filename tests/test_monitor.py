@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from pagemonitor.monitor import check_for_changes
+from pagemonitor.monitor import check_for_changes, normalize_body
 
 
 def _html(body: str) -> bytes:
@@ -146,6 +146,33 @@ class CheckForChangesTests(unittest.TestCase):
         changed = check_for_changes(self.url, self.snapshot)
 
         self.assertFalse(changed)
+
+    @patch("pagemonitor.monitor.fetch_page")
+    def test_steam_cdn_host_rotation_does_not_trigger_change(self, mock_fetch) -> None:
+        akamai = (
+            '<img src="https://store.akamai.steamstatic.com/public/shared/images/header/logo_steam.svg">'
+            '<link href="https://store.akamai.steamstatic.com/public/css/applications/store/main.css?v=abc&amp;l=english">'
+        )
+        fastly = (
+            '<img src="https://store.fastly.steamstatic.com/public/shared/images/header/logo_steam.svg">'
+            '<link href="https://store.fastly.steamstatic.com/public/css/applications/store/main.css?v=abc&amp;l=english">'
+        )
+        mock_fetch.side_effect = [_html(akamai), _html(fastly)]
+
+        check_for_changes(self.url, self.snapshot)
+        changed = check_for_changes(self.url, self.snapshot)
+
+        self.assertFalse(changed)
+
+    def test_normalize_body_canonicalizes_steam_cdn_hosts(self) -> None:
+        raw = (
+            b'<img src="https://store.akamai.steamstatic.com/foo.png">'
+            b'<img src="https://store.fastly.steamstatic.com/foo.png">'
+        )
+        normalized = normalize_body(raw).decode()
+        self.assertEqual(normalized.count("store.<cdn>.steamstatic.com"), 2)
+        self.assertNotIn("akamai", normalized)
+        self.assertNotIn("fastly", normalized)
 
 
 if __name__ == "__main__":

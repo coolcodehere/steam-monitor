@@ -35,6 +35,23 @@ _HEX_HASH_RE = re.compile(
     re.IGNORECASE,
 )
 _UNIX_TIMESTAMP_RE = re.compile(r"\b1\d{9}\b;?")
+# Steam load-balances static assets across edge CDNs (akamai, fastly, etc.).
+_STEAM_EDGE_CDN_RE = re.compile(
+    r"https?://([a-z0-9-]+)\.[a-z0-9-]+\.steamstatic\.com",
+    re.IGNORECASE,
+)
+_STEAM_EDGE_CDN_RELATIVE_RE = re.compile(
+    r"//([a-z0-9-]+)\.[a-z0-9-]+\.steamstatic\.com",
+    re.IGNORECASE,
+)
+
+# (pattern, replacement) applied in order during normalize_body.
+_VOLATILE_REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (_STEAM_EDGE_CDN_RE, r"https://\1.<cdn>.steamstatic.com"),
+    (_STEAM_EDGE_CDN_RELATIVE_RE, r"//\1.<cdn>.steamstatic.com"),
+    (_HEX_HASH_RE, '"<hash>"'),
+    (_UNIX_TIMESTAMP_RE, "<ts>"),
+)
 
 
 def fetch_page(url: str, *, timeout: float = 30.0) -> bytes:
@@ -62,8 +79,8 @@ def normalize_body(content: bytes) -> bytes:
     text = _SCRIPT_TAG_RE.sub("", text)
     text = _DATA_CONFIG_ATTR_RE.sub("", text)
     text = _LARGE_DATA_ATTR_RE.sub("", text)
-    text = _HEX_HASH_RE.sub('"<hash>"', text)
-    text = _UNIX_TIMESTAMP_RE.sub("<ts>", text)
+    for pattern, replacement in _VOLATILE_REPLACEMENTS:
+        text = pattern.sub(replacement, text)
     return text.encode("utf-8")
 
 
@@ -148,7 +165,8 @@ def check_for_changes(
 
     Only the inner HTML inside ``<body>`` is compared and stored. Dynamic
     blocks (e.g. Steam ``application_config``), ``<script>`` tags, large ``data-*`` attributes,
-    session hashes, and unix timestamps are stripped first. If no ``<body>``
+    rotating Steam CDN hostnames, session hashes, and unix timestamps are stripped first.
+    If no ``<body>``
     tag is found, the full response is used instead.
 
     - If the snapshot does not exist, write the normalized body and return ``False``.
