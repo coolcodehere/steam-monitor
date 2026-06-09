@@ -35,25 +35,15 @@ _HEX_HASH_RE = re.compile(
     re.IGNORECASE,
 )
 _UNIX_TIMESTAMP_RE = re.compile(r"\b1\d{9}\b;?")
-# Steam load-balances static assets across edge CDNs (akamai, fastly, etc.).
-_STEAM_EDGE_CDN_RE = re.compile(
-    r"https?://([a-z0-9-]+)\.[a-z0-9-]+\.steamstatic\.com",
-    re.IGNORECASE,
-)
-_STEAM_EDGE_CDN_RELATIVE_RE = re.compile(
-    r"//([a-z0-9-]+)\.[a-z0-9-]+\.steamstatic\.com",
-    re.IGNORECASE,
-)
-_STEAM_CDN_QUERY_RE = re.compile(
-    r"_cdn=(?:akamai|fastly)\b",
+# Steam load-balances assets across edge CDNs; hostnames and query params embed these labels.
+_CDN_LABEL_RE = re.compile(
+    r"\b(?:akamai|fastly)\b",
     re.IGNORECASE,
 )
 
 # (pattern, replacement) applied in order during normalize_body.
 _VOLATILE_REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (_STEAM_EDGE_CDN_RE, r"https://\1.<cdn>.steamstatic.com"),
-    (_STEAM_EDGE_CDN_RELATIVE_RE, r"//\1.<cdn>.steamstatic.com"),
-    (_STEAM_CDN_QUERY_RE, "_cdn=<cdn>"),
+    (_CDN_LABEL_RE, "<cdn>"),
     (_HEX_HASH_RE, '"<hash>"'),
     (_UNIX_TIMESTAMP_RE, "<ts>"),
 )
