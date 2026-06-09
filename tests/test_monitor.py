@@ -174,6 +174,23 @@ class CheckForChangesTests(unittest.TestCase):
         self.assertNotIn("akamai", normalized)
         self.assertNotIn("fastly", normalized)
 
+    @patch("pagemonitor.monitor.fetch_page")
+    def test_steam_cdn_query_param_does_not_trigger_change(self, mock_fetch) -> None:
+        fastly = (
+            '<link href="https://store.<cdn>.steamstatic.com/public/css/applications/store/'
+            'main.css?v=yF84mF-QAmvP&amp;l=english&amp;_cdn=fastly">'
+        )
+        akamai = (
+            '<link href="https://store.<cdn>.steamstatic.com/public/css/applications/store/'
+            'main.css?v=yF84mF-QAmvP&amp;l=english&amp;_cdn=AKAMAI">'
+        )
+        mock_fetch.side_effect = [_html(fastly), _html(akamai)]
+
+        check_for_changes(self.url, self.snapshot)
+        changed = check_for_changes(self.url, self.snapshot)
+
+        self.assertFalse(changed)
+
 
 if __name__ == "__main__":
     unittest.main()

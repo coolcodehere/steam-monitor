@@ -44,11 +44,16 @@ _STEAM_EDGE_CDN_RELATIVE_RE = re.compile(
     r"//([a-z0-9-]+)\.[a-z0-9-]+\.steamstatic\.com",
     re.IGNORECASE,
 )
+_STEAM_CDN_QUERY_RE = re.compile(
+    r"_cdn=(?:akamai|fastly)\b",
+    re.IGNORECASE,
+)
 
 # (pattern, replacement) applied in order during normalize_body.
 _VOLATILE_REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
     (_STEAM_EDGE_CDN_RE, r"https://\1.<cdn>.steamstatic.com"),
     (_STEAM_EDGE_CDN_RELATIVE_RE, r"//\1.<cdn>.steamstatic.com"),
+    (_STEAM_CDN_QUERY_RE, "_cdn=<cdn>"),
     (_HEX_HASH_RE, '"<hash>"'),
     (_UNIX_TIMESTAMP_RE, "<ts>"),
 )
