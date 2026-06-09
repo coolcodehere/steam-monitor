@@ -35,15 +35,18 @@ _HEX_HASH_RE = re.compile(
     re.IGNORECASE,
 )
 _UNIX_TIMESTAMP_RE = re.compile(r"\b1\d{9}\b;?")
-# Steam load-balances assets across edge CDNs; hostnames and query params embed these labels.
-_CDN_LABEL_RE = re.compile(
-    r"\b(?:akamai|fastly)\b",
+_URL_ATTR_RE = re.compile(
+    r'(\s(?:href|src|srcset|action|poster|content|data-src|data-href|data-url|cite)\s*=\s*["\'])[^"\']*(["\'])',
     re.IGNORECASE,
 )
+_URL_ABSOLUTE_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+_URL_PROTOCOL_RELATIVE_RE = re.compile(r"(?<!:)//[^\s\"'<>]+")
 
 # (pattern, replacement) applied in order during normalize_body.
 _VOLATILE_REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (_CDN_LABEL_RE, "<cdn>"),
+    (_URL_ATTR_RE, r"\1<url>\2"),
+    (_URL_ABSOLUTE_RE, "<url>"),
+    (_URL_PROTOCOL_RELATIVE_RE, "<url>"),
     (_HEX_HASH_RE, '"<hash>"'),
     (_UNIX_TIMESTAMP_RE, "<ts>"),
 )
@@ -160,7 +163,7 @@ def check_for_changes(
 
     Only the inner HTML inside ``<body>`` is compared and stored. Dynamic
     blocks (e.g. Steam ``application_config``), ``<script>`` tags, large ``data-*`` attributes,
-    rotating Steam CDN hostnames, session hashes, and unix timestamps are stripped first.
+    URLs in link attributes and absolute URLs, session hashes, and unix timestamps are stripped first.
     If no ``<body>``
     tag is found, the full response is used instead.
 

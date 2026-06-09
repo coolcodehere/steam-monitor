@@ -164,27 +164,27 @@ class CheckForChangesTests(unittest.TestCase):
 
         self.assertFalse(changed)
 
-    def test_normalize_body_canonicalizes_steam_cdn_hosts(self) -> None:
+    def test_normalize_body_strips_urls(self) -> None:
         raw = (
             b'<img src="https://store.akamai.steamstatic.com/foo.png">'
-            b'<img src="https://store.fastly.steamstatic.com/foo.png">'
+            b'<link href="https://store.fastly.steamstatic.com/bar.css?v=1">'
         )
         normalized = normalize_body(raw).decode()
-        self.assertEqual(normalized.count("store.<cdn>.steamstatic.com"), 2)
-        self.assertNotIn("akamai", normalized)
-        self.assertNotIn("fastly", normalized)
+        self.assertIn('src="<url>"', normalized)
+        self.assertIn('href="<url>"', normalized)
+        self.assertNotIn("steamstatic", normalized)
 
     @patch("pagemonitor.monitor.fetch_page")
-    def test_steam_cdn_query_param_does_not_trigger_change(self, mock_fetch) -> None:
-        fastly = (
-            '<link href="https://store.<cdn>.steamstatic.com/public/css/applications/store/'
+    def test_asset_url_changes_do_not_trigger_change(self, mock_fetch) -> None:
+        first = (
+            '<link href="https://store.fastly.steamstatic.com/public/css/applications/store/'
             'main.css?v=yF84mF-QAmvP&amp;l=english&amp;_cdn=fastly">'
         )
-        akamai = (
-            '<link href="https://store.<cdn>.steamstatic.com/public/css/applications/store/'
-            'main.css?v=yF84mF-QAmvP&amp;l=english&amp;_cdn=AKAMAI">'
+        second = (
+            '<link href="https://store.akamai.steamstatic.com/public/css/applications/store/'
+            'main.css?v=ZC-rseGiB9hA&amp;l=english&amp;_cdn=akamai">'
         )
-        mock_fetch.side_effect = [_html(fastly), _html(akamai)]
+        mock_fetch.side_effect = [_html(first), _html(second)]
 
         check_for_changes(self.url, self.snapshot)
         changed = check_for_changes(self.url, self.snapshot)
