@@ -14,7 +14,7 @@ from pagemonitor.monitor import check_for_changes
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Fetch a web page and detect changes against a local copy.",
+        description="Fetch a web page and detect waitlist/reserve signals against a local snapshot.",
     )
     parser.add_argument("url", help="Page URL to fetch")
     parser.add_argument(
@@ -30,10 +30,10 @@ def main() -> int:
         return 1
 
     if changed:
-        print("changed")
+        print("alert: new waitlist/reserve signal(s)")
         return 0
 
-    print("unchanged (no discord — page matches snapshot)")
+    print("no new waitlist/reserve signals")
     return 0
 
 

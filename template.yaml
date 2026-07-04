@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: PageMonitor — scheduled Steam Frame checks with S3 snapshot storage
+Description: PageMonitor — scheduled Steam Frame waitlist/reserve checks with S3 snapshot storage
 
 Parameters:
   DiscordBotToken:
@@ -22,6 +22,10 @@ Parameters:
     Type: String
     Default: rate(1 minute)
     Description: EventBridge schedule for checks
+  HeartbeatScheduleExpression:
+    Type: String
+    Default: rate(6 hours)
+    Description: EventBridge schedule for Discord heartbeat (four times per day)
 
 Globals:
   Function:
@@ -51,7 +55,7 @@ Resources:
       BuildMethod: makefile
     Properties:
       FunctionName: pagemonitor
-      Description: Fetch Steam Frame page and notify Discord on changes
+      Description: Fetch Steam Frame page and notify Discord on waitlist/reserve signals
       Handler: lambda.handler.lambda_handler
       CodeUri: .
       Environment:
@@ -72,6 +76,13 @@ Resources:
             Schedule: !Ref ScheduleExpression
             Description: Periodic page check
             Enabled: true
+        HeartbeatSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: !Ref HeartbeatScheduleExpression
+            Description: Discord heartbeat four times per day
+            Enabled: true
+            Input: '{"task":"heartbeat"}'
 
 Outputs:
   FunctionName:

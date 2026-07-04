@@ -83,42 +83,29 @@ def _role_ids_from_content(content: str, extra: str | None = None) -> list[str]:
     return list(dict.fromkeys(ids))
 
 
+def _build_heartbeat_message(url: str) -> str:
+    return (
+        "**PageMonitor heartbeat**\n"
+        "No new waitlist/reserve signals on Steam Frame.\n"
+        f"{url}"
+    )[:_MAX_MESSAGE_LEN]
+
+
 def _build_message(
     url: str,
     *,
-    changed: bool,
-    diff: str,
+    signals: tuple[str, ...] = (),
     snapshot_path: str,
-    baseline: bool = False,
     mention_role_id: str | None = None,
     mention_user_id: str | None = None,
-    purchase_alert: bool = False,
 ) -> str:
-    role_prefix = f"<@&{mention_role_id}> " if mention_role_id and changed else ""
-    user_prefix = f"<@{mention_user_id}> " if mention_user_id and changed else ""
+    role_prefix = f"<@&{mention_role_id}> " if mention_role_id else ""
+    user_prefix = f"<@{mention_user_id}> " if mention_user_id else ""
 
-    if baseline:
-        header = f"{user_prefix}**Baseline saved**\n{url}\nSnapshot: `{snapshot_path}`"
-    elif changed:
-        if purchase_alert:
-            title = "**Steam Frame: reserve / buy detected**"
-        else:
-            title = "**Page changed**"
-        header = f"{role_prefix}{user_prefix}{title}\n{url}\nSnapshot: `{snapshot_path}`"
-    else:
-        header = f"**No changes**\n{url}\nSnapshot: `{snapshot_path}`"
-
-    if not changed or not diff:
-        return header[:_MAX_MESSAGE_LEN]
-
-    block_start = f"{header}\n```diff\n"
-    block_end = "\n```"
-    budget = _MAX_MESSAGE_LEN - len(block_start) - len(block_end)
-    if budget < 1:
-        return header[:_MAX_MESSAGE_LEN]
-
-    trimmed = diff if len(diff) <= budget else f"{diff[: budget - 1]}…"
-    return f"{block_start}{trimmed}{block_end}"[:_MAX_MESSAGE_LEN]
+    signal_text = ", ".join(signals)
+    title = f"**Steam Frame: {signal_text} detected**"
+    header = f"{role_prefix}{user_prefix}{title}\n{url}\nSnapshot: `{snapshot_path}`"
+    return header[:_MAX_MESSAGE_LEN]
 
 
 def print_request(request: urllib.request.Request, *, file: TextIO = sys.stdout) -> None:
@@ -184,30 +171,36 @@ def send_message(
         raise DiscordError(str(exc)) from exc
 
 
+def send_heartbeat(url: str) -> None:
+    """Post a scheduled all-clear heartbeat (no role or user mentions)."""
+    token, channel_id = _credentials()
+    send_message(
+        _build_heartbeat_message(url),
+        token=token,
+        channel_id=channel_id,
+        mention_role_ids=[],
+        mention_user_ids=[],
+    )
+
+
 def notify_page_change(
     url: str,
     *,
-    changed: bool,
-    diff: str = "",
+    signals: tuple[str, ...] = (),
     snapshot_path: str,
-    baseline: bool = False,
     mention_role_id: str | None = None,
     mention_user_id: str | None = None,
-    purchase_alert: bool = False,
 ) -> None:
-    """Post the result of a page check to Discord."""
+    """Post a waitlist / reserve alert to Discord."""
     token, channel_id = _credentials()
     user_id = mention_user_id if mention_user_id is not None else notify_user_id()
     role_id = mention_role_id if mention_role_id is not None else None
     message = _build_message(
         url,
-        changed=changed,
-        diff=diff,
+        signals=signals,
         snapshot_path=snapshot_path,
-        baseline=baseline,
         mention_role_id=role_id,
         mention_user_id=user_id,
-        purchase_alert=purchase_alert,
     )
     role_ids = [role_id] if role_id else []
     user_ids = [user_id] if user_id else []

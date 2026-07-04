@@ -1,4 +1,4 @@
-"""Steam Frame store page helpers."""
+"""Steam Frame store page signal detection."""
 
 from __future__ import annotations
 
@@ -7,21 +7,15 @@ from urllib.parse import urlparse
 
 STEAM_FRAME_URL = "https://store.steampowered.com/hardware/steamframe"
 
-# Visible purchase actions and Steam store purchase markup.
-_PURCHASE_SIGNALS = (
-    re.compile(r">\s*Reserve(?:\s+Now)?\s*<", re.IGNORECASE),
-    re.compile(r">\s*Buy(?:\s+Now)?\s*<", re.IGNORECASE),
-    re.compile(r">\s*Pre-?order(?:\s+Now)?\s*<", re.IGNORECASE),
-    re.compile(r">\s*Add\s+to\s+Cart\s*<", re.IGNORECASE),
-    re.compile(r"\bbtn_addtocart\b", re.IGNORECASE),
-    re.compile(r"\bgame_purchase_\w+", re.IGNORECASE),
-    re.compile(r"\bhardware_\w*(?:buy|reserve|purchase)\w*", re.IGNORECASE),
-    re.compile(r"\bAddToCart\b"),
-    re.compile(r'"add_to_cart"\s*:', re.IGNORECASE),
-    re.compile(r"data-price-final", re.IGNORECASE),
-    re.compile(r'\[\/url\]\s*Buy\s+Now\s*\[', re.IGNORECASE),
-    re.compile(r"style=pill[^\]]*\]Reserve", re.IGNORECASE),
-    re.compile(r"style=pill[^\]]*\]Buy\s+Now", re.IGNORECASE),
+# Actionable waitlist / reserve UI — not FAQ prose or footer "rights reserved".
+_SIGNAL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r">\s*Reserve(?:\s+Now)?\s*<", re.IGNORECASE), "reserve"),
+    (re.compile(r">\s*Waitlist\s*<", re.IGNORECASE), "waitlist"),
+    (re.compile(r">\s*Join\s+(?:the\s+)?Waitlist\s*<", re.IGNORECASE), "waitlist"),
+    (re.compile(r"style=pill[^\]]*\]Reserve", re.IGNORECASE), "reserve"),
+    (re.compile(r"style=pill[^\]]*\]Waitlist", re.IGNORECASE), "waitlist"),
+    (re.compile(r"\bhardware_\w*reserve\w*", re.IGNORECASE), "reserve"),
+    (re.compile(r"\bhardware_\w*waitlist\w*", re.IGNORECASE), "waitlist"),
 )
 
 
@@ -34,42 +28,26 @@ def is_steamframe_url(url: str) -> bool:
     )
 
 
-def _purchase_text(content: bytes | str) -> str:
+def _signal_text(content: bytes | str) -> str:
     text = content.decode("utf-8", errors="replace") if isinstance(content, bytes) else content
     return re.sub(r"rights\s+reserved", "", text, flags=re.IGNORECASE)
 
 
-def has_purchase_option(content: bytes | str) -> bool:
-    """Return True if *content* looks like it offers reserve or buy."""
-    text = _purchase_text(content)
-    return any(pattern.search(text) for pattern in _PURCHASE_SIGNALS)
+def detect_signals(content: bytes | str) -> frozenset[str]:
+    """Return signal names (e.g. ``waitlist``, ``reserve``) present in *content*."""
+    text = _signal_text(content)
+    found: set[str] = set()
+    for pattern, name in _SIGNAL_PATTERNS:
+        if pattern.search(text):
+            found.add(name)
+    return frozenset(found)
 
 
-def purchase_added_in_diff(diff: str) -> bool:
-    """Return True if added diff lines introduce a reserve/buy signal."""
-    added = "\n".join(
-        line[2:]
-        for line in diff.splitlines()
-        if line.startswith("+") and not line.startswith("+++")
-    )
-    if not added.strip():
-        return False
-    return has_purchase_option(added)
+def new_signals(old: bytes | str, new: bytes | str) -> frozenset[str]:
+    """Return signals that appear in *new* but not in *old*."""
+    return detect_signals(new) - detect_signals(old)
 
 
-def should_mention_role(url: str, *, changed: bool) -> bool:
-    """Mention @Steam Frame Interest when the Steam Frame page changes."""
-    return changed and is_steamframe_url(url)
-
-
-def should_alert_purchase(
-    url: str,
-    content: bytes,
-    *,
-    changed: bool,
-    diff: str = "",
-) -> bool:
-    """Use reserve/buy headline when purchase signals appear on a Steam Frame change."""
-    if not changed or not is_steamframe_url(url):
-        return False
-    return has_purchase_option(content) or purchase_added_in_diff(diff)
+def should_mention_role(url: str, *, alert: bool) -> bool:
+    """Mention the notify role when waitlist/reserve signals are newly detected."""
+    return alert and is_steamframe_url(url)

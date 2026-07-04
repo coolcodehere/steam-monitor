@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Send a simulated Steam Frame change alert (reserve/buy detected) to Discord."""
+"""Send a simulated Steam Frame waitlist/reserve alert to Discord."""
 
 import argparse
 import sys
@@ -10,16 +10,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pagemonitor.discord import DiscordError, DiscordNotConfigured, notify_page_change, notify_role_id
 from pagemonitor.steamframe import STEAM_FRAME_URL
 
-_SAMPLE_DIFF = """\
---- snapshots/steamframe.html
-+++ https://store.steampowered.com/hardware/steamframe
-- <p>Notify me</p>
-+ <a class="btn_green_steamui">Buy Now</a>"""
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Post a fake page-change alert to Discord (does not fetch or update snapshots).",
+        description="Post a fake waitlist/reserve alert to Discord (does not fetch or update snapshots).",
     )
     parser.add_argument(
         "url",
@@ -33,16 +27,21 @@ def main() -> int:
         default="snapshots/steamframe.html",
         help="Snapshot path shown in the alert",
     )
+    parser.add_argument(
+        "--signal",
+        action="append",
+        default=["reserve"],
+        choices=("waitlist", "reserve"),
+        help="Signal name(s) to include in the alert (repeatable)",
+    )
     args = parser.parse_args()
 
     try:
         notify_page_change(
             args.url,
-            changed=True,
-            diff=_SAMPLE_DIFF,
+            signals=tuple(sorted(set(args.signal))),
             snapshot_path=args.snapshot,
             mention_role_id=notify_role_id(),
-            purchase_alert=True,
         )
     except DiscordNotConfigured as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -51,7 +50,7 @@ def main() -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    print("sent simulated reserve/buy alert")
+    print("sent simulated waitlist/reserve alert")
     return 0
 
 

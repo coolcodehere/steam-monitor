@@ -1,6 +1,6 @@
 # PageMonitor
 
-Fetch a web page, compare the **`<body>`** inner HTML to a local snapshot, and update the snapshot when the body changes. Head, scripts, and other markup outside `<body>` are ignored. Volatile bits (hidden config blocks, large `data-*` blobs, session hashes, timestamps) are stripped before compare so routine session noise does not trigger updates.
+Monitors the [Steam Frame](https://store.steampowered.com/hardware/steamframe) store page for **waitlist** and **reserve** signals. Discord is notified only when a new signal appears compared to the saved snapshot — routine page churn does not trigger alerts.
 
 ## Usage
 
@@ -9,21 +9,24 @@ Fetch a web page, compare the **`<body>`** inner HTML to a local snapshot, and u
 ```python
 from pagemonitor import check_for_changes
 
-if check_for_changes("https://example.com", "snapshots/example.html"):
-    print("Page changed!")
+if check_for_changes(
+    "https://store.steampowered.com/hardware/steamframe",
+    "snapshots/steamframe.html",
+):
+    print("New waitlist/reserve signal!")
 ```
 
 Behavior:
 
 - **No snapshot yet** — saves the body inner HTML and returns `False`.
-- **Snapshot matches** — returns `False` (snapshot is left as-is).
-- **Snapshot differs** — prints only the changed fragments to stdout, overwrites the snapshot, and returns `True`.
+- **No new signals** — updates the snapshot and returns `False`.
+- **New waitlist/reserve signal** — notifies Discord and returns `True`.
 
 ### Discord notifications
 
-After each check, PageMonitor posts the result to a Discord channel using the [bot API](https://discord.com/developers/docs/resources/channel#create-message)—changed, unchanged, or first-time baseline. The outgoing request is printed to the console (token redacted).
+PageMonitor posts to a Discord channel when new waitlist or reserve UI appears on the Steam Frame page. The outgoing request is printed to the console (token redacted).
 
-For [Steam Frame](https://store.steampowered.com/hardware/steamframe), any detected **change** pings the **@Steam Frame Interest** role (Discord requires `allowed_mentions` in the API payload for the ping to fire). Set `DISCORD_NOTIFY_ROLE_ID` to that role's ID; the bot needs permission to mention the role in that channel.
+New signals ping the **@Steam Frame Interest** role (Discord requires `allowed_mentions` in the API payload for the ping to fire). Set `DISCORD_NOTIFY_ROLE_ID` to that role's ID; the bot needs permission to mention the role in that channel. Heartbeat messages are sent **four times per day** (every 6 hours) with no role ping.
 
 Test the ping:
 
@@ -31,10 +34,16 @@ Test the ping:
 python3 scripts/ping_role.py
 ```
 
-Simulate a Steam Frame change (reserve/buy detected, role ping, no fetch):
+Simulate a waitlist/reserve alert (role ping, no fetch):
 
 ```bash
 python3 scripts/simulate_change.py
+```
+
+Send a heartbeat manually (no role ping):
+
+```bash
+python3 scripts/heartbeat.py
 ```
 
 Copy `.env.example` to `.env` in the project root (or run from a directory that has its own `.env`):
@@ -48,11 +57,11 @@ cp .env.example .env
 |----------|-------------|
 | `DISCORD_BOT_TOKEN` | Bot token from the [Discord Developer Portal](https://discord.com/developers/applications) |
 | `DISCORD_CHANNEL_ID` | Channel ID to post in (bot needs **Send Messages** in that channel) |
-| `DISCORD_NOTIFY_USER_ID` | Your Discord **user** ID — @mentioned in that channel when the page changes |
-| `DISCORD_NOTIFY_ROLE_ID` | **@Steam Frame Interest** role ID — @mentioned on Steam Frame page changes |
+| `DISCORD_NOTIFY_USER_ID` | Your Discord **user** ID — @mentioned when a new signal is detected |
+| `DISCORD_NOTIFY_ROLE_ID` | **@Steam Frame Interest** role ID — @mentioned on new signals |
 
 ```bash
-python3 scripts/check_page.py https://example.com snapshots/example.html
+python3 scripts/check_page.py https://store.steampowered.com/hardware/steamframe snapshots/steamframe.html
 ```
 
 Values in `.env` are loaded automatically. Variables already set in your shell take precedence. If Discord variables are missing, monitoring still works; notifications are skipped. Pass `notify=False` to `check_for_changes()` to disable Discord posts.
@@ -60,34 +69,29 @@ Values in `.env` are loaded automatically. Variables already set in your shell t
 ### CLI
 
 ```bash
-python scripts/check_page.py https://example.com snapshots/example.html
+python scripts/check_page.py https://store.steampowered.com/hardware/steamframe snapshots/steamframe.html
 ```
 
 Or after install:
 
 ```bash
 pip install -e .
-check-page https://example.com snapshots/example.html
+check-page https://store.steampowered.com/hardware/steamframe snapshots/steamframe.html
 ```
 
-### Docker (Steam Frame every 30 seconds)
+### Docker (Steam Frame every 60 seconds)
 
 All Docker files live in [`docker/`](docker/). See [`docker/README.md`](docker/README.md).
 
-Equivalent to running this on a loop:
-
-```bash
-python3 scripts/check_page.py https://store.steampowered.com/hardware/steamframe snapshots/steamframe.html
-```
-
 ```bash
 cp .env.example .env   # Discord token + channel id
-./docker/docker-up.sh
+docker compose -f docker/docker-compose.yml up -d
 ```
 
 - Loads secrets from `.env` in the project root
 - Persists `snapshots/steamframe.html` on the host
-- Checks every **30 seconds** (`PAGEMONITOR_INTERVAL` to override)
+- Checks every **60 seconds** (`PAGEMONITOR_INTERVAL` to override)
+- Heartbeat every **6 hours** (`PAGEMONITOR_HEARTBEAT_INTERVAL` to override)
 
 Stop: `docker compose -f docker/docker-compose.yml down`
 
@@ -97,6 +101,6 @@ Stop: `docker compose -f docker/docker-compose.yml down`
 python3 -m unittest discover -s tests -v
 ```
 
-The suite mocks page fetches and injects HTML changes between runs to verify detection works and session noise is ignored.
+The suite mocks page fetches and verifies waitlist/reserve signal detection and Discord notification behavior.
 
 Note: This is slopcoded so I cannot guarantee performance.

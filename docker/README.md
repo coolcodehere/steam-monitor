@@ -9,7 +9,7 @@ docker compose -f docker/docker-compose.yml up -d
 
 Requires `.env` in the project root (see `../.env.example`). Snapshots are stored in `../snapshots/`.
 
-Discord posts only when the **page content changes**, not on every check. After editing `.env`, recreate the container:
+Discord posts only when **new waitlist or reserve signals** appear, not on every check. A **heartbeat** (no role ping) is sent every 6 hours. After editing `.env`, recreate the container:
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d --build --force-recreate

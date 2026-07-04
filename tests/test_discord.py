@@ -10,9 +10,11 @@ from unittest.mock import MagicMock, patch
 
 from pagemonitor.discord import (
     DiscordNotConfigured,
+    _build_heartbeat_message,
     _build_message,
     notify_page_change,
     print_request,
+    send_heartbeat,
     send_message,
 )
 
@@ -21,43 +23,55 @@ class DiscordMessageTests(unittest.TestCase):
     def test_build_message_mentions_role_for_steamframe_alert(self) -> None:
         message = _build_message(
             "https://store.steampowered.com/hardware/steamframe",
-            changed=True,
-            diff="--- a\n+++ b\n+ Buy Now",
+            signals=("reserve",),
             snapshot_path="snapshots/steamframe.html",
             mention_role_id="987654321098765432",
-            purchase_alert=True,
         )
         self.assertTrue(message.startswith("<@&987654321098765432>"))
-        self.assertIn("reserve / buy detected", message)
+        self.assertIn("reserve detected", message)
 
-    def test_build_message_unchanged(self) -> None:
+    def test_build_message_includes_url(self) -> None:
         message = _build_message(
-            "https://example.com",
-            changed=False,
-            diff="",
-            snapshot_path="snapshots/x.html",
+            "https://store.steampowered.com/hardware/steamframe",
+            signals=("waitlist", "reserve"),
+            snapshot_path="snapshots/steamframe.html",
         )
-        self.assertIn("No changes", message)
+        self.assertIn("https://store.steampowered.com/hardware/steamframe", message)
+        self.assertIn("waitlist, reserve detected", message)
 
-    def test_build_message_includes_url_and_diff(self) -> None:
+    def test_build_message_truncates_long_header(self) -> None:
         message = _build_message(
-            "https://example.com",
-            changed=True,
-            diff="--- a\n+++ b\n- old\n+ new",
-            snapshot_path="snapshots/x.html",
-        )
-        self.assertIn("https://example.com", message)
-        self.assertIn("```diff", message)
-        self.assertIn("- old", message)
-
-    def test_build_message_truncates_long_diff(self) -> None:
-        message = _build_message(
-            "https://example.com",
-            changed=True,
-            diff="x" * 5000,
+            "https://example.com/" + "x" * 5000,
+            signals=("reserve",),
             snapshot_path="snapshots/x.html",
         )
         self.assertLessEqual(len(message), 2000)
+
+    def test_build_heartbeat_message_no_mentions(self) -> None:
+        message = _build_heartbeat_message("https://store.steampowered.com/hardware/steamframe")
+        self.assertIn("heartbeat", message)
+        self.assertIn("No new waitlist/reserve signals", message)
+        self.assertNotIn("<@&", message)
+        self.assertNotIn("<@", message)
+
+
+class DiscordHeartbeatTests(unittest.TestCase):
+    @patch.dict(os.environ, {"DISCORD_BOT_TOKEN": "token", "DISCORD_CHANNEL_ID": "123"})
+    @patch("pagemonitor.discord.print_request")
+    @patch("urllib.request.urlopen")
+    def test_send_heartbeat_posts_without_role_ping(
+        self,
+        mock_urlopen: MagicMock,
+        _mock_print_request: MagicMock,
+    ) -> None:
+        mock_urlopen.return_value.__enter__.return_value.status = 200
+
+        send_heartbeat("https://store.steampowered.com/hardware/steamframe")
+
+        payload = json.loads(mock_urlopen.call_args[0][0].data.decode())
+        self.assertIn("heartbeat", payload["content"])
+        self.assertIn("No new waitlist/reserve signals", payload["content"])
+        self.assertNotIn("allowed_mentions", payload)
 
 
 class DiscordSendTests(unittest.TestCase):
@@ -128,7 +142,6 @@ class DiscordSendTests(unittest.TestCase):
         with self.assertRaises(DiscordNotConfigured):
             notify_page_change(
                 "https://example.com",
-                changed=False,
                 snapshot_path="snap.html",
             )
 
